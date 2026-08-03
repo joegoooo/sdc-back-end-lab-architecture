@@ -1,0 +1,4 @@
+/backend
+*.exe
+.idea/
+.DS_Store

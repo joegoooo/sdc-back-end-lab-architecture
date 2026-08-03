@@ -1,0 +1,2 @@
+ALTER TABLE forms
+    DROP COLUMN IF EXISTS archived;
