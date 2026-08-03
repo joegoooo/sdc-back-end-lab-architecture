@@ -37,10 +37,11 @@ func main() {
 	}
 	defer dbPool.Close()
 
-	mux := http.NewServeMux()
+	formService := form.NewService(logger, dbPool)
+	formHandler := form.NewHandler(logger, formService)
 
-	// Task 1 之後這一行會被 formHandler.RegisterRoutes(mux) 取代。
-	mux.HandleFunc("POST /api/forms", form.CreateForm(dbPool))
+	mux := http.NewServeMux()
+	formHandler.RegisterRoutes(mux)
 
 	server := &http.Server{Addr: ":8080", Handler: mux}
 	logger.Info("Backend started on :8080")
