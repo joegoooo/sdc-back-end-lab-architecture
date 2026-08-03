@@ -1,0 +1,119 @@
+{
+  "yaakSchema": 4,
+  "resources": {
+    "workspaces": [
+      { "id": "wk_sdc_lab", "model": "workspace", "name": "SDC Lab — Forms API" }
+    ],
+    "environments": [
+      {
+        "id": "ev_sdc_lab",
+        "model": "environment",
+        "workspaceId": "wk_sdc_lab",
+        "name": "local",
+        "variables": [
+          { "enabled": true, "name": "baseUrl", "value": "http://localhost:8080" },
+          { "enabled": true, "name": "formId", "value": "" }
+        ]
+      }
+    ],
+    "httpRequests": [
+      {
+        "id": "rq_create", "model": "http_request", "workspaceId": "wk_sdc_lab",
+        "sortPriority": 1, "name": "Task 1 — POST /api/forms",
+        "method": "POST", "url": "${[baseUrl]}/api/forms",
+        "headers": [{ "enabled": true, "name": "Content-Type", "value": "application/json" }],
+        "bodyType": "application/json",
+        "body": { "text": "{\n  \"title\": \"問卷調查\",\n  \"description\": \"說明文字\"\n}" }
+      },
+      {
+        "id": "rq_create_dup", "model": "http_request", "workspaceId": "wk_sdc_lab",
+        "sortPriority": 2, "name": "Task 1 — POST /api/forms (409 重複標題)",
+        "method": "POST", "url": "${[baseUrl]}/api/forms",
+        "headers": [{ "enabled": true, "name": "Content-Type", "value": "application/json" }],
+        "bodyType": "application/json",
+        "body": { "text": "{\n  \"title\": \"問卷調查\",\n  \"description\": \"再送一次\"\n}" }
+      },
+      {
+        "id": "rq_create_empty", "model": "http_request", "workspaceId": "wk_sdc_lab",
+        "sortPriority": 3, "name": "Task 1 — POST /api/forms (400 空標題)",
+        "method": "POST", "url": "${[baseUrl]}/api/forms",
+        "headers": [{ "enabled": true, "name": "Content-Type", "value": "application/json" }],
+        "bodyType": "application/json",
+        "body": { "text": "{\n  \"title\": \"   \"\n}" }
+      },
+      {
+        "id": "rq_list", "model": "http_request", "workspaceId": "wk_sdc_lab",
+        "sortPriority": 4, "name": "Task 2 — GET /api/forms",
+        "method": "GET", "url": "${[baseUrl]}/api/forms",
+        "urlParameters": [
+          { "enabled": true, "name": "page", "value": "1" },
+          { "enabled": true, "name": "size", "value": "20" }
+        ]
+      },
+      {
+        "id": "rq_list_bad", "model": "http_request", "workspaceId": "wk_sdc_lab",
+        "sortPriority": 5, "name": "Task 2 — GET /api/forms (400 size 超過上限)",
+        "method": "GET", "url": "${[baseUrl]}/api/forms",
+        "urlParameters": [{ "enabled": true, "name": "size", "value": "999" }]
+      },
+      {
+        "id": "rq_get", "model": "http_request", "workspaceId": "wk_sdc_lab",
+        "sortPriority": 6, "name": "Task 2 — GET /api/forms/{id}",
+        "method": "GET", "url": "${[baseUrl]}/api/forms/${[formId]}"
+      },
+      {
+        "id": "rq_get_404", "model": "http_request", "workspaceId": "wk_sdc_lab",
+        "sortPriority": 7, "name": "Task 2 — GET /api/forms/{id} (404)",
+        "method": "GET", "url": "${[baseUrl]}/api/forms/00000000-0000-0000-0000-000000000000"
+      },
+      {
+        "id": "rq_patch", "model": "http_request", "workspaceId": "wk_sdc_lab",
+        "sortPriority": 8, "name": "Task 2 — PATCH /api/forms/{id} (只改 title)",
+        "method": "PATCH", "url": "${[baseUrl]}/api/forms/${[formId]}",
+        "headers": [{ "enabled": true, "name": "Content-Type", "value": "application/json" }],
+        "bodyType": "application/json",
+        "body": { "text": "{\n  \"title\": \"問卷調查（修訂）\"\n}" }
+      },
+      {
+        "id": "rq_patch_empty", "model": "http_request", "workspaceId": "wk_sdc_lab",
+        "sortPriority": 9, "name": "Task 2 — PATCH /api/forms/{id} (400 沒有欄位)",
+        "method": "PATCH", "url": "${[baseUrl]}/api/forms/${[formId]}",
+        "headers": [{ "enabled": true, "name": "Content-Type", "value": "application/json" }],
+        "bodyType": "application/json",
+        "body": { "text": "{}" }
+      },
+      {
+        "id": "rq_delete", "model": "http_request", "workspaceId": "wk_sdc_lab",
+        "sortPriority": 10, "name": "Task 2 — DELETE /api/forms/{id}",
+        "method": "DELETE", "url": "${[baseUrl]}/api/forms/${[formId]}"
+      },
+      {
+        "id": "rq_delete_404", "model": "http_request", "workspaceId": "wk_sdc_lab",
+        "sortPriority": 11, "name": "Task 2 — DELETE /api/forms/{id} (404)",
+        "method": "DELETE", "url": "${[baseUrl]}/api/forms/00000000-0000-0000-0000-000000000000"
+      },
+      {
+        "id": "rq_delete_archived", "model": "http_request", "workspaceId": "wk_sdc_lab",
+        "sortPriority": 12, "name": "Task 3 — DELETE /api/forms/{id} (409 已封存)",
+        "method": "DELETE", "url": "${[baseUrl]}/api/forms/${[formId]}",
+        "description": "先在資料庫執行 UPDATE forms SET archived = true WHERE id = '<formId>';"
+      },
+      {
+        "id": "rq_duplicate", "model": "http_request", "workspaceId": "wk_sdc_lab",
+        "sortPriority": 13, "name": "Task 4 — POST /api/forms/{id}/duplicate",
+        "method": "POST", "url": "${[baseUrl]}/api/forms/${[formId]}/duplicate",
+        "headers": [{ "enabled": true, "name": "Content-Type", "value": "application/json" }],
+        "bodyType": "application/json",
+        "body": { "text": "{\n  \"title\": \"問卷調查（第二版）\"\n}" }
+      },
+      {
+        "id": "rq_duplicate_404", "model": "http_request", "workspaceId": "wk_sdc_lab",
+        "sortPriority": 14, "name": "Task 4 — POST /api/forms/{id}/duplicate (404 來源不存在)",
+        "method": "POST", "url": "${[baseUrl]}/api/forms/00000000-0000-0000-0000-000000000000/duplicate",
+        "headers": [{ "enabled": true, "name": "Content-Type", "value": "application/json" }],
+        "bodyType": "application/json",
+        "body": { "text": "{\n  \"title\": \"不會被建立\"\n}" }
+      }
+    ]
+  }
+}
