@@ -79,6 +79,12 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, title, description *
 // Delete 刪除表單。
 //
 // Querier 的 Delete 回傳「影響了幾列」。0 代表沒有這筆資料。
+//
+// Task 3：已封存的表單不能刪除，回傳 ErrFormArchived。
+// 這條規則寫在這裡，不是寫在 Handler——換成 CLI 批次刪除、
+// 換成排程清理，它一樣要成立。
+//
+// 你會需要先知道這筆資料的 archived 是什麼，才能做這個判斷。
 func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
 	panic("TODO")
 }

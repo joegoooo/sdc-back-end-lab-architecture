@@ -7,4 +7,5 @@ import "errors"
 var (
 	ErrTitleConflict = errors.New("form title already exists")
 	ErrFormNotFound  = errors.New("form not found")
+	ErrFormArchived  = errors.New("form is archived")
 )
