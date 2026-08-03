@@ -6,4 +6,5 @@ import "errors"
 // Handler 再把這些錯誤映射成 HTTP status code。
 var (
 	ErrTitleConflict = errors.New("form title already exists")
+	ErrFormNotFound  = errors.New("form not found")
 )
