@@ -2,8 +2,12 @@ package form
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"go.uber.org/zap"
 )
 
@@ -39,67 +43,158 @@ func NewService(logger *zap.Logger, db DBTX) *Service {
 	}
 }
 
-// Create 建立一份表單。
-//
-// 注意簽名裡沒有任何 HTTP 的東西：沒有 http.Request，沒有 status code。
-// Service 只認得 title 與 description，以及「衝突了」這件事本身。
-//
-// 步驟：
-//  1. 用 ExistsByTitle 檢查標題是否重複，重複就回傳 ErrTitleConflict
-//  2. 用 Create 寫入
-//  3. 包裝底層錯誤時用 %w，上層才能用 errors.Is 追回去
 func (s *Service) Create(ctx context.Context, title, description string) (Form, error) {
-	panic("TODO")
+	if err := s.ensureTitleAvailable(ctx, title); err != nil {
+		return Form{}, err
+	}
+
+	created, err := s.queries.Create(ctx, CreateParams{
+		Title:       title,
+		Description: textOrNull(description),
+	})
+	if err != nil {
+		return Form{}, fmt.Errorf("create form: %w", err)
+	}
+
+	return created, nil
 }
 
-// GetByID 取得單一表單。
-//
-// pgx 在查不到資料時回傳 pgx.ErrNoRows。把它轉譯成 ErrFormNotFound，
-// Handler 才不需要知道底下用的是 pgx。
 func (s *Service) GetByID(ctx context.Context, id uuid.UUID) (Form, error) {
-	panic("TODO")
+	f, err := s.queries.GetByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Form{}, ErrFormNotFound
+		}
+		return Form{}, fmt.Errorf("get form %s: %w", id, err)
+	}
+
+	return f, nil
 }
 
-// List 分頁列出表單。
-//
-// 收到的是「第幾頁、每頁幾筆」，Querier 認得的是 limit 與 offset。
-// 這個換算就是 Service 的工作，Handler 只負責把 query string 轉成 int。
+// List 收到的是「第幾頁、每頁幾筆」，Querier 認得的是 limit 與 offset。
+// 這個換算就是 Service 的工作。
 func (s *Service) List(ctx context.Context, page, size int) (ListResult, error) {
-	panic("TODO")
+	items, err := s.queries.List(ctx, ListParams{
+		Limit:  int32(size),
+		Offset: int32((page - 1) * size),
+	})
+	if err != nil {
+		return ListResult{}, fmt.Errorf("list forms: %w", err)
+	}
+
+	total, err := s.queries.Count(ctx)
+	if err != nil {
+		return ListResult{}, fmt.Errorf("count forms: %w", err)
+	}
+
+	return ListResult{Items: items, Total: total}, nil
 }
 
 // Update 部分更新。nil 代表「這個欄位不變更」。
-//
-// 需要先確認表單存在（否則 404 從哪來？），
-// 也需要在 title 真的有變動時才檢查撞名——改成跟自己一樣的值不算衝突。
 func (s *Service) Update(ctx context.Context, id uuid.UUID, title, description *string) (Form, error) {
-	panic("TODO")
+	current, err := s.GetByID(ctx, id)
+	if err != nil {
+		return Form{}, err
+	}
+
+	// 只有在標題真的變動時才檢查撞名。
+	// 改成跟自己現在一樣的值，不算衝突。
+	if title != nil && *title != current.Title {
+		if err := s.ensureTitleAvailable(ctx, *title); err != nil {
+			return Form{}, err
+		}
+	}
+
+	updated, err := s.queries.Update(ctx, UpdateParams{
+		Title:       optionalText(title),
+		Description: optionalText(description),
+		ID:          id,
+	})
+	if err != nil {
+		return Form{}, fmt.Errorf("update form %s: %w", id, err)
+	}
+
+	return updated, nil
 }
 
-// Delete 刪除表單。
+// Delete 刪除表單。已封存的表單不能刪除。
 //
-// Querier 的 Delete 回傳「影響了幾列」。0 代表沒有這筆資料。
-//
-// Task 3：已封存的表單不能刪除，回傳 ErrFormArchived。
-// 這條規則寫在這裡，不是寫在 Handler——換成 CLI 批次刪除、
+// 這條規則在這裡，不是在 Handler——換成 CLI 批次刪除、
 // 換成排程清理，它一樣要成立。
-//
-// 你會需要先知道這筆資料的 archived 是什麼，才能做這個判斷。
 func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
-	panic("TODO")
+	f, err := s.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	if f.Archived {
+		return ErrFormArchived
+	}
+
+	rows, err := s.queries.Delete(ctx, id)
+	if err != nil {
+		return fmt.Errorf("delete form %s: %w", id, err)
+	}
+	if rows == 0 {
+		// GetByID 到 Delete 之間有人先刪掉了。
+		return ErrFormNotFound
+	}
+
+	return nil
 }
 
 // Duplicate 以既有表單為範本建立一份新的。
 //
-// 這是「一個流程呼叫多個 Querier」的例子。Service 內部會做三件事：
-//  1. 讀出來源表單（不存在 → ErrFormNotFound）
-//  2. 檢查新標題有沒有撞名（撞名 → ErrTitleConflict）
-//  3. 建立新表單，description 沿用來源
-//
-// 三次 Querier 呼叫，但 Handler 只呼叫一次 Service，
-// 而且完全不知道裡面做了幾次查詢。
-//
-// 不要為了這支 API 新增 Querier 方法——三個你都已經有了。
+// 三次 Querier 呼叫（讀來源、檢查撞名、建立），但 Handler 只呼叫一次 Service，
+// 而且完全不知道裡面做了幾次查詢。三個 Querier 方法都是既有的，
+// 沒有為了這支 API 新增任何 SQL。
 func (s *Service) Duplicate(ctx context.Context, sourceID uuid.UUID, title string) (Form, error) {
-	panic("TODO")
+	source, err := s.GetByID(ctx, sourceID)
+	if err != nil {
+		return Form{}, err
+	}
+
+	if err := s.ensureTitleAvailable(ctx, title); err != nil {
+		return Form{}, err
+	}
+
+	created, err := s.queries.Create(ctx, CreateParams{
+		Title:       title,
+		Description: source.Description,
+	})
+	if err != nil {
+		return Form{}, fmt.Errorf("duplicate form %s: %w", sourceID, err)
+	}
+
+	return created, nil
+}
+
+// ensureTitleAvailable 是 Create、Update、Duplicate 共用的業務規則。
+// 抽出來之後，「標題不可重複」這件事在整個 Backend 裡只寫了一次。
+func (s *Service) ensureTitleAvailable(ctx context.Context, title string) error {
+	exists, err := s.queries.ExistsByTitle(ctx, title)
+	if err != nil {
+		return fmt.Errorf("check title duplication: %w", err)
+	}
+	if exists {
+		return ErrTitleConflict
+	}
+
+	return nil
+}
+
+// textOrNull 用在建立時：沒填描述就存 NULL，而不是空字串。
+// 這兩件事在 SQL 裡的意義不同（WHERE description IS NULL 查不到空字串）。
+func textOrNull(v string) pgtype.Text {
+	return pgtype.Text{String: v, Valid: v != ""}
+}
+
+// optionalText 用在部分更新：nil 產生一個 Valid 為 false 的值，
+// 在 SQL 的 COALESCE 裡代表「這個欄位不變更」。
+func optionalText(v *string) pgtype.Text {
+	if v == nil {
+		return pgtype.Text{}
+	}
+
+	return pgtype.Text{String: *v, Valid: true}
 }

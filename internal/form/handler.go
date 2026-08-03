@@ -3,7 +3,10 @@ package form
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -86,61 +89,233 @@ type errorBody struct {
 	Error string `json:"error"`
 }
 
-// Validate 只檢查格式，不檢查業務規則。
+// ---------- 驗證 ----------
+//
+// 這裡只檢查格式，不檢查業務規則。
 // 「title 不可為空」在這裡；「title 不可與現有表單重複」在 Service。
+
+func validateTitle(title string) error {
+	if strings.TrimSpace(title) == "" {
+		return errors.New("title is required")
+	}
+	if len(title) > maxTitleLength {
+		return errors.New("title must be at most 255 characters")
+	}
+
+	return nil
+}
+
+func validateDescription(description string) error {
+	if len(description) > maxDescriptionLength {
+		return errors.New("description must be at most 1000 characters")
+	}
+
+	return nil
+}
+
 func (r CreateRequest) Validate() error {
-	panic("TODO")
+	if err := validateTitle(r.Title); err != nil {
+		return err
+	}
+
+	return validateDescription(r.Description)
 }
 
 func (r UpdateRequest) Validate() error {
-	panic("TODO")
+	if r.Title == nil && r.Description == nil {
+		return errors.New("no fields to update")
+	}
+	if r.Title != nil {
+		if err := validateTitle(*r.Title); err != nil {
+			return err
+		}
+	}
+	if r.Description != nil {
+		if err := validateDescription(*r.Description); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (r DuplicateRequest) Validate() error {
+	return validateTitle(r.Title)
 }
 
 // toResponse 把資料層的形狀轉成對外的形狀。
+// archived 不對外公開，所以這裡沒有它。
 func toResponse(f Form) FormResponse {
-	panic("TODO")
+	return FormResponse{
+		ID:          f.ID.String(),
+		Title:       f.Title,
+		Description: f.Description.String,
+		CreatedAt:   f.CreatedAt.Time,
+	}
 }
 
 // ---------- Handler ----------
 
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
-	// 1. 解析 JSON，失敗回 400
-	// 2. Validate，失敗回 400
-	// 3. 呼叫 h.store.Create
-	// 4. 失敗交給 h.writeError，成功回 201 + toResponse
-	//
-	// 每一個錯誤分支都要 return。Go 不會因為你「回覆了錯誤」就結束函式。
-	panic("TODO")
+	var req CreateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorBody{Error: "invalid request body"})
+		return
+	}
+
+	if err := req.Validate(); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorBody{Error: err.Error()})
+		return
+	}
+
+	created, err := h.store.Create(r.Context(), req.Title, req.Description)
+	if err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, toResponse(created))
 }
 
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
-	// page / size 從 r.URL.Query() 拿，是字串，要自己轉。
-	// 範圍檢查（size <= 100）在這裡，offset 換算不在這裡。
-	panic("TODO")
+	page, err := intQuery(r, "page", defaultPage)
+	if err != nil || page < 1 {
+		writeJSON(w, http.StatusBadRequest, errorBody{Error: "invalid page"})
+		return
+	}
+
+	size, err := intQuery(r, "size", defaultSize)
+	if err != nil || size < 1 {
+		writeJSON(w, http.StatusBadRequest, errorBody{Error: "invalid size"})
+		return
+	}
+	if size > maxSize {
+		writeJSON(w, http.StatusBadRequest, errorBody{Error: "size must be at most 100"})
+		return
+	}
+
+	// offset 的換算不在這裡，Service 才知道怎麼分頁。
+	result, err := h.store.List(r.Context(), page, size)
+	if err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+
+	// nil slice 會被 encode 成 null，這裡要的是 []。
+	items := make([]FormResponse, 0, len(result.Items))
+	for _, f := range result.Items {
+		items = append(items, toResponse(f))
+	}
+
+	writeJSON(w, http.StatusOK, ListResponse{
+		Items: items,
+		Page:  page,
+		Size:  size,
+		Total: result.Total,
+	})
 }
 
 func (h *Handler) Get(w http.ResponseWriter, r *http.Request) {
-	panic("TODO")
+	id, err := h.parseID(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorBody{Error: "invalid id"})
+		return
+	}
+
+	f, err := h.store.GetByID(r.Context(), id)
+	if err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, toResponse(f))
 }
 
 func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
-	panic("TODO")
+	id, err := h.parseID(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorBody{Error: "invalid id"})
+		return
+	}
+
+	var req UpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorBody{Error: "invalid request body"})
+		return
+	}
+
+	if err := req.Validate(); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorBody{Error: err.Error()})
+		return
+	}
+
+	updated, err := h.store.Update(r.Context(), id, req.Title, req.Description)
+	if err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, toResponse(updated))
 }
 
+// Delete 沒有因為 Task 3 的封存規則變長，因為那條規則不在這一層。
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
-	// 成功時回 204，而且不能有 body。
-	panic("TODO")
+	id, err := h.parseID(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorBody{Error: "invalid id"})
+		return
+	}
+
+	if err := h.store.Delete(r.Context(), id); err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+
+	writeJSON(w, http.StatusNoContent, nil)
 }
 
+// Duplicate 跟 Create 幾乎一樣長。
+// Service 內部呼叫了三次 Querier，這一層完全不知道。
 func (h *Handler) Duplicate(w http.ResponseWriter, r *http.Request) {
-	// 這個 Handler 應該跟 Create 幾乎一樣長。
-	// 如果它變長了，代表流程控制跑到錯的層去了。
-	panic("TODO")
+	id, err := h.parseID(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorBody{Error: "invalid id"})
+		return
+	}
+
+	var req DuplicateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorBody{Error: "invalid request body"})
+		return
+	}
+
+	if err := req.Validate(); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorBody{Error: err.Error()})
+		return
+	}
+
+	created, err := h.store.Duplicate(r.Context(), id, req.Title)
+	if err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, toResponse(created))
 }
 
-// parseID 把路徑參數轉成 UUID。四支 API 都會用到，抽出來就好。
+// ---------- 小工具 ----------
+
 func (h *Handler) parseID(r *http.Request) (uuid.UUID, error) {
-	panic("TODO")
+	return uuid.Parse(r.PathValue("id"))
+}
+
+func intQuery(r *http.Request, key string, fallback int) (int, error) {
+	raw := r.URL.Query().Get(key)
+	if raw == "" {
+		return fallback, nil
+	}
+
+	return strconv.Atoi(raw)
 }
 
 // ---------- 回應 ----------
@@ -155,9 +330,23 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 
 // writeError 是這一層的核心：把 Service 的業務錯誤翻譯成 HTTP 語意。
 //
-// Service 說「衝突了」，這裡才決定那是 409。
-// 未預期的錯誤在這裡 log 一次就好，對外只回通用訊息，
-// 不要把資料庫錯誤原文丟給前端。
+// Service 只說「找不到」「衝突了」「已封存」，
+// 是這裡決定那分別是 404、409、409。
 func (h *Handler) writeError(w http.ResponseWriter, r *http.Request, err error) {
-	panic("TODO")
+	switch {
+	case errors.Is(err, ErrFormNotFound):
+		writeJSON(w, http.StatusNotFound, errorBody{Error: "form not found"})
+	case errors.Is(err, ErrTitleConflict):
+		writeJSON(w, http.StatusConflict, errorBody{Error: "form title already exists"})
+	case errors.Is(err, ErrFormArchived):
+		writeJSON(w, http.StatusConflict, errorBody{Error: "form is archived"})
+	default:
+		// 未預期的錯誤在這裡 log 一次就好，對外只回通用訊息。
+		// 資料庫錯誤常常帶著資料表名稱與欄位名稱，那是給我們看的。
+		h.logger.Error("unhandled error",
+			zap.Error(err),
+			zap.String("method", r.Method),
+			zap.String("path", r.URL.Path))
+		writeJSON(w, http.StatusInternalServerError, errorBody{Error: "internal server error"})
+	}
 }
