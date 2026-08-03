@@ -26,6 +26,7 @@ type Store interface {
 	List(ctx context.Context, page, size int) (ListResult, error)
 	Update(ctx context.Context, id uuid.UUID, title, description *string) (Form, error)
 	Delete(ctx context.Context, id uuid.UUID) error
+	Duplicate(ctx context.Context, sourceID uuid.UUID, title string) (Form, error)
 }
 
 type Handler struct {
@@ -43,6 +44,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/forms/{id}", h.Get)
 	mux.HandleFunc("PATCH /api/forms/{id}", h.Update)
 	mux.HandleFunc("DELETE /api/forms/{id}", h.Delete)
+	mux.HandleFunc("POST /api/forms/{id}/duplicate", h.Duplicate)
 }
 
 // ---------- DTO ----------
@@ -60,6 +62,10 @@ type CreateRequest struct {
 type UpdateRequest struct {
 	Title       *string `json:"title"`
 	Description *string `json:"description"`
+}
+
+type DuplicateRequest struct {
+	Title string `json:"title"`
 }
 
 type FormResponse struct {
@@ -123,6 +129,12 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	// 成功時回 204，而且不能有 body。
+	panic("TODO")
+}
+
+func (h *Handler) Duplicate(w http.ResponseWriter, r *http.Request) {
+	// 這個 Handler 應該跟 Create 幾乎一樣長。
+	// 如果它變長了，代表流程控制跑到錯的層去了。
 	panic("TODO")
 }
 

@@ -88,3 +88,18 @@ func (s *Service) Update(ctx context.Context, id uuid.UUID, title, description *
 func (s *Service) Delete(ctx context.Context, id uuid.UUID) error {
 	panic("TODO")
 }
+
+// Duplicate 以既有表單為範本建立一份新的。
+//
+// 這是「一個流程呼叫多個 Querier」的例子。Service 內部會做三件事：
+//  1. 讀出來源表單（不存在 → ErrFormNotFound）
+//  2. 檢查新標題有沒有撞名（撞名 → ErrTitleConflict）
+//  3. 建立新表單，description 沿用來源
+//
+// 三次 Querier 呼叫，但 Handler 只呼叫一次 Service，
+// 而且完全不知道裡面做了幾次查詢。
+//
+// 不要為了這支 API 新增 Querier 方法——三個你都已經有了。
+func (s *Service) Duplicate(ctx context.Context, sourceID uuid.UUID, title string) (Form, error) {
+	panic("TODO")
+}
