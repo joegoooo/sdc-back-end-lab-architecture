@@ -126,3 +126,32 @@ grep -rn "SELECT\|INSERT\|UPDATE\|DELETE" internal/form/handler.go
 ```
 
 **三、`internal/form/form.go` 已經被刪除。**
+
+---
+
+## 自動化測試
+
+每個 Task 都有對應的單元測試，用 mock 取代資料庫，不需要 Postgres。
+
+```bash
+make test TAGS=task1        # 做完 Task 1 之後
+make test TAGS=task1,task2  # 做完 Task 2 之後，累加上去
+make test                   # 四個 Task 全部做完
+```
+
+`make test` 會先跑 `mockery` 依照 `service.go` 的 `Querier` 與 `handler.go` 的 `Store`
+生成 mock，再跑測試。所以**每次改動 interface 之後都要重新 `make test`**，
+不要只跑 `go test`。
+
+一開始測試是編譯不過的：
+
+```
+package sdclab/internal/form/mocks is not in std
+```
+
+這是預期的。`Querier` 與 `Store` 還不存在，mockery 生不出東西。
+做完 Task 1、有了這兩個 interface 之後，`make test TAGS=task1` 就會跑起來。
+
+測試檔一個 Task 一組（`service_task1_test.go` / `handler_task1_test.go`，依此類推）。
+`internal/form/mocks/` 是生成物，不進版控。
+
