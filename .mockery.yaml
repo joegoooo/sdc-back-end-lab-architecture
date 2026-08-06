@@ -1,0 +1,12 @@
+dir: "{{.InterfaceDir}}/mocks"
+pkgname: "mocks"
+filename: "{{.InterfaceName}}.go"
+structname: "{{.InterfaceName}}"
+template: testify
+exclude-subpkg-regex:
+  - "mocks"
+
+packages:
+  sdclab/internal/form:
+    config:
+      all: true
