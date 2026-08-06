@@ -36,10 +36,10 @@ type Service struct {
 	queries Querier
 }
 
-func NewService(logger *zap.Logger, db DBTX) *Service {
+func NewService(logger *zap.Logger, querier Querier) *Service {
 	return &Service{
 		logger:  logger,
-		queries: New(db),
+		queries: querier,
 	}
 }
 
