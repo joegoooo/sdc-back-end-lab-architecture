@@ -37,7 +37,7 @@ func main() {
 	}
 	defer dbPool.Close()
 
-	formService := form.NewService(logger, dbPool)
+	formService := form.NewService(logger, form.New(dbPool))
 	formHandler := form.NewHandler(logger, formService)
 
 	mux := http.NewServeMux()
